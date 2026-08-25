@@ -1,0 +1,108 @@
+# Resume Platform Docker Compose
+# Deploy: docker compose -f docker-compose.resume-platform.yml up -d
+# Location: ~/docker/iacgenie/docker-compose.resume-platform.yml
+
+version: "3.8"
+
+services:
+  # =====================
+  # Resume API (FastAPI)
+  # =====================
+  resume-api:
+    image: python:3.11-slim
+    container_name: iacgenie_resume_api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3006:8000"
+    volumes:
+      - ./resume-platform/api:/app
+      - ./resume-platform/requirements.txt:/app/requirements.txt
+    environment:
+      - DATABASE_URL=postgresql://lightsrp:${PG_ROOT_PASSWORD}@iacgenie_postgres:5432/lightsrp
+      - REDIS_URL=redis://iacgenie_redis:6379/1
+      - MINIO_ENDPOINT=iacgenie_minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - KEYCLOAK_URL=http://iacgenie_keycloak:8080
+      - KEYCLOAK_REALM=iacgenie
+      - KEYCLOAK_CLIENT_ID=resume-platform
+      - KEYCLOAK_CLIENT_SECRET=${RESUME_PLATFORM_CLIENT_SECRET}
+      - AUTH_WRAPPER_URL=http://iacgenie_auth_wrapper:9090
+      - N8N_URL=http://iacgenie_n8n:5678
+      - OLLAMA_URL=http://127.0.0.1:11434
+      - RESUME_BUCKET=resume-files
+    depends_on:
+      n8n:
+        condition: service_healthy
+    networks:
+      - iacgenie-backend
+    deploy:
+      resources:
+        limits:
+          memory: "512m"
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 6<>/dev/tcp/127.0.0.1:8000 && exec 6>&-"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # =====================
+  # n8n Workflow Engine
+  # =====================
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: iacgenie_n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_SECURE_COOKIE=false
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=iacgenie_postgres
+      - DB_POSTGRESDB_DATABASE=lightsrp
+      - DB_POSTGRESDB_USER=lightsrp
+      - DB_POSTGRESDB_PASSWORD=${PG_ROOT_PASSWORD}
+      - DB_POSTGRESDB_PORT=5432
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=iacgenie_redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - OLLAMA_URL=http://127.0.0.1:11434
+      - MINIO_ENDPOINT=iacgenie_minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+    volumes:
+      - ./n8n/data:/home/node/.n8n
+    depends_on:
+      resume-api:
+        condition: service_healthy
+    networks:
+      - iacgenie-backend
+    deploy:
+      resources:
+        limits:
+          memory: "1g"
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 6<>/dev/tcp/127.0.0.1:5678 && exec 6>&-"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  iacgenie-backend:
+    external: true
+    name: iacgenie_iacgenie-backend
