@@ -1,13 +1,7 @@
 # Resume Platform Docker Compose
-# Deploy: docker compose -f docker-compose.resume-platform.yml up -d
-# Location: ~/docker/iacgenie/docker-compose.resume-platform.yml
-
 version: "3.8"
 
 services:
-  # =====================
-  # Resume API (FastAPI)
-  # =====================
   resume-api:
     build:
       context: ./api
@@ -16,20 +10,18 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3006:3006"
+    env_file:
+      - ../.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://lightsrp:${PG_ROOT_PASSWORD}@iacgenie_postgres:5432/lightsrp
       - MINIO_ENDPOINT=iacgenie_minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
       - KEYCLOAK_URL=http://iacgenie_keycloak:8080
       - KEYCLOAK_REALM=iacgenie
       - KEYCLOAK_CLIENT_ID=resume-platform
-      - KEYCLOAK_CLIENT_SECRET=${RESUME_PLATFORM_CLIENT_SECRET}
-      - AUTH_WRAPPER_URL=http://iacgenie_auth_wrapper:9090
-      - OLLAMA_URL=http://127.0.0.1:11434
+      - AUTH_WRAPPER_URL=***      - OLLAMA_URL=http://127.0.0.1:11434
       - OLLAMA_MODEL=qwen2.5:0.5b
-      - API_SECRET=${RESUME_API_SECRET}
-      - MAX_FILE_SIZE_MB=10
+      - API_SECRET=***      - MAX_FILE_SIZE_MB=10
       - ALLOWED_ORIGINS=https://resume.iacgenie.com
     depends_on:
       n8n:
@@ -52,15 +44,14 @@ services:
         max-size: "50m"
         max-file: "3"
 
-  # =====================
-  # n8n Workflow Engine
-  # =====================
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: iacgenie_n8n
     restart: unless-stopped
     ports:
       - "127.0.0.1:3005:5678"
+    env_file:
+      - ../.env
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -70,17 +61,14 @@ services:
       - DB_POSTGRESDB_HOST=iacgenie_postgres
       - DB_POSTGRESDB_DATABASE=lightsrp
       - DB_POSTGRESDB_USER=lightsrp
-      - DB_POSTGRESDB_PASSWORD=${PG_ROOT_PASSWORD}
-      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_PASSWORD=***      - DB_POSTGRESDB_PORT=5432
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=iacgenie_redis
       - QUEUE_BULL_REDIS_PORT=6379
       - OLLAMA_URL=http://127.0.0.1:11434
       - MINIO_ENDPOINT=iacgenie_minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - N8N_API_KEY=${RESUME_API_SECRET}
-    volumes:
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - N8N_API_KEY=***    volumes:
       - ./n8n/data:/home/node/.n8n
     depends_on:
       resume-api:

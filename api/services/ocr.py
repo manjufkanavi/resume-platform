@@ -6,8 +6,16 @@ import io
 import logging
 from typing import Any
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 from docx import Document
 from pypdf import PdfReader
 
@@ -55,6 +63,9 @@ def extract_text_from_image(file_bytes: bytes) -> str:
         recognition_model, processor = load_rec_model(), load_processor()
 
         # Decode image
+        if not HAS_CV2 or not HAS_NUMPY:
+            logger.warning("cv2 or numpy not available, skipping image OCR")
+            return ""
         img_array = np.frombuffer(file_bytes, dtype=np.uint8)
         image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
