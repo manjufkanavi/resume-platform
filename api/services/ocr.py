@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+import subprocess
+import tempfile
 from typing import Any
 
 try:
@@ -22,6 +25,32 @@ from pypdf import PdfReader
 logger = logging.getLogger(__name__)
 
 
+def _ocr_with_tesseract(image_bytes: bytes) -> str:
+    """Run the local tesseract OCR engine on image bytes (CPU, no models).
+
+    Used as a fallback when Surya OCR is not installed. Writes the image to a
+    temp file and shells out to the `tesseract` binary, returning extracted text.
+    """
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "ocr.png")
+            with open(path, "wb") as fh:
+                fh.write(image_bytes)
+            result = subprocess.run(
+                ["tesseract", path, "stdout"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        return result.stdout.strip()
+    except FileNotFoundError:
+        logger.warning("tesseract binary not found; skipping image OCR")
+        return ""
+    except Exception as e:
+        logger.error(f"tesseract OCR failed: {e}")
+        return ""
+
+
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from PDF using pypdf (fallback) + Surya for scanned pages."""
     reader = PdfReader(io.BytesIO(file_bytes))
@@ -37,9 +66,15 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     if full_text.strip():
         return full_text
 
-    # If no text extracted (scanned PDF), convert to images and use Surya
-    logger.info("PDF appears scanned, falling back to image-based OCR")
-    return ""  # Will be handled by image OCR path
+    # If no text extracted (scanned PDF), OCR each embedded page image.
+    logger.info("PDF appears scanned, running image OCR")
+    ocr_parts: list[str] = []
+    for page in reader.pages:
+        for image in page.images:
+            text = _ocr_with_tesseract(image.data)
+            if text:
+                ocr_parts.append(text)
+    return "\n".join(ocr_parts)
 
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
@@ -78,8 +113,8 @@ def extract_text_from_image(file_bytes: bytes) -> str:
 
         return ""
     except ImportError:
-        logger.warning("Surya OCR not available, returning empty text")
-        return ""
+        logger.warning("Surya OCR not available, falling back to tesseract")
+        return _ocr_with_tesseract(file_bytes)
     except Exception as e:
         logger.error(f"Surya OCR failed: {e}")
         return ""

@@ -57,6 +57,53 @@ async def n8n_process_resume(request: Request, x_api_key: str = Header(...)):
     return JSONResponse(content={"status": "ok", "resume_id": resume_id, "action": action})
 
 
+@router.post("/n8n/ocr")
+async def n8n_ocr(request: Request, x_api_key: str = Header(...)):
+    """Internal endpoint: n8n triggers OCR extraction for a resume file.
+
+    Downloads the file from MinIO, runs OCR, and returns the structured
+    ``ocr_json`` produced by ``parse_text_to_json``. This is the endpoint the
+    n8n "OCR Extraction" node calls so OCR is a real step, not a stub.
+    """
+    require_internal_api(x_api_key)
+
+    from services.ocr import extract_text_from_file, parse_text_to_json
+    from services.minio import download_file
+
+    body = await request.json()
+    resume_id = body.get("resume_id")
+    minio_key = body.get("minio_key")
+    file_type = body.get("file_type", "")
+
+    if not resume_id or not minio_key:
+        raise HTTPException(
+            status_code=400, detail="Missing resume_id or minio_key"
+        )
+
+    try:
+        file_bytes = download_file(minio_key)
+    except Exception as e:
+        logger.error(f"MinIO download failed: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to download file from MinIO"
+        )
+
+    try:
+        text = extract_text_from_file(file_bytes, file_type)
+        ocr_json = parse_text_to_json(text)
+    except Exception as e:
+        logger.error(f"OCR failed: {e}")
+        raise HTTPException(status_code=500, detail="OCR processing failed")
+
+    return JSONResponse(
+        content={
+            "resume_id": resume_id,
+            "ocr_json": ocr_json,
+            "status": "ocr_completed",
+        }
+    )
+
+
 @router.get("/health")
 async def health_check():
     """Health check endpoint."""
