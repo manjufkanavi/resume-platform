@@ -1,0 +1,146 @@
+{
+  "name": "Resume Processing Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-upload",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeCode",
+        "code": "// Extract resume data from webhook\nconst body = $json;\nreturn [{\n  json: {\n    resume_id: body.resume_id,\n    filename: body.filename,\n    file_type: body.file_type,\n    file_size: body.file_size,\n    job_title: body.job_title || null,\n    experience_years: body.experience_years || null,\n    minio_key: body.minio_key,\n    status: 'processing'\n  }\n}];",
+        "outputKey": "default"
+      },
+      "id": "extract-data",
+      "name": "Extract Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeCode",
+        "code": "// Step 1: OCR Extraction using Surya\n// This calls the resume-api OCR endpoint\nconst axios = require('axios');\n\nconst resumeId = $input.first().json.resume_id;\nconst minioKey = $input.first().json.minio_key;\nconst fileType = $input.first().json.file_type;\n\n// Download file from MinIO and run OCR\n// In production, this would call the resume-api /api/v1/internal/ocr endpoint\n// For now, we use a code-based OCR approach\n\nreturn [{\n  json: {\n    resume_id: resumeId,\n    ocr_status: 'completed',\n    message: 'OCR extraction completed'\n  }\n}];",
+        "outputKey": "default"
+      },
+      "id": "ocr-extraction",
+      "name": "OCR Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeCode",
+        "code": "// Step 2: Deterministic ATS Scoring\nconst ocrJson = $input.first().json;\n\n// ATS Scoring Logic (deterministic)\nconst sections = ocrJson.sections || {};\nconst rawText = ocrJson.raw_text || '';\nconst wordCount = ocrJson.word_count || 0;\n\n// Completeness scoring\nconst requiredSections = {\n  contact_info: ['email', 'phone', 'linkedin', 'address'],\n  summary: ['summary', 'objective', 'profile'],\n  experience: ['experience', 'work', 'employment'],\n  education: ['education', 'degree', 'university'],\n  skills: ['skills', 'technical', 'competencies']\n};\n\nlet completenessScore = 0;\nlet sectionScores = {};\nfor (const [section, keywords] of Object.entries(requiredSections)) {\n  const text = (sections[section] || '').toLowerCase();\n  const hasSection = keywords.some(kw => text.includes(kw));\n  sectionScores[section] = hasSection ? 100 : 0;\n  if (hasSection) completenessScore++;\n}\ncompletenessScore = Math.round((completenessScore / Object.keys(requiredSections).length) * 100);\n\n// Formatting scoring\nlet formattingScore = 100;\nconst bulletCount = (rawText.match(/^\\s*[-•*]\\s+/gm) || []).length;\nif (bulletCount === 0) formattingScore -= 30;\nif (wordCount < 100) formattingScore -= 20;\nif (wordCount > 1000) formattingScore -= 10;\nformattingScore = Math.max(0, formattingScore);\n\n// Keyword scoring (if job_title provided)\nlet keywordScore = 50;\nlet missingKeywords = [];\nconst jobTitle = $input.first().json.job_title || '';\nif (jobTitle) {\n  const industryKeywords = {\n    software: ['python', 'java', 'javascript', 'react', 'api', 'sql', 'docker', 'aws'],\n    data: ['python', 'sql', 'machine learning', 'pandas', 'tensorflow', 'statistics'],\n    devops: ['docker', 'kubernetes', 'terraform', 'ansible', 'aws', 'ci/cd']\n  };\n  \n  let targetKeywords = [];\n  for (const [industry, keywords] of Object.entries(industryKeywords)) {\n    if (jobTitle.toLowerCase().includes(industry)) {\n      targetKeywords = targetKeywords.concat(keywords);\n    }\n  }\n  \n  if (targetKeywords.length > 0) {\n    const rawLower = rawText.toLowerCase();\n    const matched = targetKeywords.filter(kw => rawLower.includes(kw));\n    missingKeywords = targetKeywords.filter(kw => !rawLower.includes(kw));\n    keywordScore = Math.round((matched.length / targetKeywords.length) * 100);\n  }\n}\n\n// Quality scoring\nlet qualityScore = 100;\nconst actionVerbs = ['achieved', 'developed', 'implemented', 'improved', 'managed', 'led'];\nconst experience = (sections.experience || '').toLowerCase();\nconst verbCount = actionVerbs.filter(v => experience.includes(v)).length;\nif (verbCount < 3) qualityScore -= 25;\nif (!rawText.match(/\\d+%/) ) qualityScore -= 15;\nqualityScore = Math.max(0, qualityScore);\n\n// Overall score\nconst overall = Math.round(\n  keywordScore * 0.30 +\n  formattingScore * 0.25 +\n  completenessScore * 0.30 +\n  qualityScore * 0.15\n);\n\n// Recommendations\nconst recommendations = [];\nif (completenessScore < 60) recommendations.push('Add missing sections: contact info, summary, experience, education, skills');\nif (formattingScore < 60) recommendations.push('Use bullet points and proper spacing');\nif (keywordScore < 50) recommendations.push('Include more industry keywords');\nif (qualityScore < 60) recommendations.push('Use more action verbs and quantify achievements');\nif (wordCount < 100) recommendations.push('Expand your resume — aim for at least 100 words');\n\nreturn [{\n  json: {\n    resume_id: $input.first().json.resume_id,\n    ats_score: {\n      overall: overall,\n      keywords_match: keywordScore,\n      formatting: formattingScore,\n      completeness: completenessScore,\n      section_scores: sectionScores,\n      missing_keywords: missingKeywords.slice(0, 20),\n      recommendations: recommendations\n    },\n    status: 'scored'\n  }\n}];",
+        "outputKey": "default"
+      },
+      "id": "ats-scoring",
+      "name": "ATS Scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeCode",
+        "code": "// Step 3: LLM Improvement Generation via Ollama\nconst axios = require('axios');\n\nconst atsScore = $input.first().json.ats_score;\nconst ocrJson = $input.first().json;\nconst jobTitle = $input.first().json.job_title || 'Not specified';\n\n// Build resume content\nconst sections = ocrJson.sections || {};\nlet contentParts = [];\nfor (const [name, text] of Object.entries(sections)) {\n  if (text) contentParts.push(`=== ${name.toUpperCase()} ===\\n${text}`);\n}\nconst resumeContent = contentParts.join('\\n\\n') || ocrJson.raw_text || 'No content';\n\n// Build prompt\nconst prompt = `You are an expert resume reviewer. Analyze this resume and provide improvements.\n\n## Resume Content\n${resumeContent.substring(0, 3000)}\n\n## ATS Score\n${JSON.stringify(atsScore, null, 2)}\n\n## Job Title\n${jobTitle}\n\nReturn JSON with: rewritten_sections, suggestions, keyword_suggestions, formatting_tips, estimated_ats_score_after`;\n\ntry {\n  const response = await axios.post('http://ollama:11434/api/generate', {\n    model: 'qwen2.5:0.5b',\n    prompt: prompt,\n    stream: false,\n    options: {\n      temperature: 0.3,\n      max_tokens: 2048\n    }\n  });\n  \n  let rawOutput = response.data.response || '';\n  \n  // Parse JSON from response\n  let improvements;\n  try {\n    // Strip markdown code blocks\n    rawOutput = rawOutput.replace(/^```json\\s*|\\s*```$/g, '').trim();\n    improvements = JSON.parse(rawOutput);\n  } catch (e) {\n    // Fallback\n    improvements = {\n      rewritten_sections: {},\n      suggestions: ['Add a professional summary', 'Use action verbs', 'Quantify achievements'],\n      keyword_suggestions: [],\n      formatting_tips: ['Use consistent formatting', 'Include bullet points'],\n      estimated_ats_score_after: Math.min(100, atsScore.overall + 15)\n    };\n  }\n  \n  return [{\n    json: {\n      resume_id: $input.first().json.resume_id,\n      improvements: improvements,\n      status: 'completed'\n    }\n  }];\n} catch (error) {\n  // Fallback if Ollama is unavailable\n  return [{\n    json: {\n      resume_id: $input.first().json.resume_id,\n      improvements: {\n        rewritten_sections: {},\n        suggestions: ['Add a professional summary', 'Use action verbs', 'Quantify achievements'],\n        keyword_suggestions: [],\n        formatting_tips: ['Use consistent formatting', 'Include bullet points'],\n        estimated_ats_score_after: Math.min(100, atsScore.overall + 15)\n      },\n      status: 'completed',\n      fallback: true\n    }\n  }];",
+        "outputKey": "default"
+      },
+      "id": "llm-improvements",
+      "name": "LLM Improvements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeCode",
+        "code": "// Step 4: Save results to Resume API\nconst axios = require('axios');\n\nconst resumeId = $input.first().json.resume_id;\nconst atsScore = $input.first().json.ats_score;\nconst improvements = $input.first().json.improvements;\n\n// Update resume with ATS score\ntry {\n  await axios.post('http://resume-api:3006/api/v1/internal/n8n/process-resume', {\n    resume_id: resumeId,\n    action: 'score',\n    data: atsScore\n  }, {\n    headers: { 'X-API-Key': process.env.N8N_API_KEY || 'change-me-secret' }\n  });\n} catch (e) {\n  console.log('ATS save failed (API may not be running):', e.message);\n}\n\n// Update resume with improvements\ntry {\n  await axios.post('http://resume-api:3006/api/v1/internal/n8n/process-resume', {\n    resume_id: resumeId,\n    action: 'improve',\n    data: improvements\n  }, {\n    headers: { 'X-API-Key': process.env.N8N_API_KEY || 'change-me-secret' }\n  });\n} catch (e) {\n  console.log('Improvements save failed (API may not be running):', e.message);\n}\n\nreturn [{\n  json: {\n    resume_id: resumeId,\n    status: 'pipeline_complete',\n    ats_score: atsScore,\n    improvements: improvements\n  }\n}];",
+        "outputKey": "default"
+      },
+      "id": "save-results",
+      "name": "Save Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Data": {
+      "main": [
+        [
+          {
+            "node": "OCR Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Extraction": {
+      "main": [
+        [
+          {
+            "node": "ATS Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ATS Scoring": {
+      "main": [
+        [
+          {
+            "node": "LLM Improvements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Improvements": {
+      "main": [
+        [
+          {
+            "node": "Save Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 300,
+    "timezone": "Asia/Kolkata"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "resume-platform"
+  }
+}

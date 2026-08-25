@@ -1,5 +1,3 @@
-# Resume Platform — .gitignore
-
 # Python
 __pycache__/
 *.py[cod]
@@ -7,11 +5,11 @@ __pycache__/
 dist/
 build/
 *.egg
-.venv/
-venv/
 
 # Environment
 .env
+.venv/
+venv/
 
 # IDE
 .vscode/
@@ -19,7 +17,3 @@ venv/
 
 # Docker
 .docker/
-
-# OS
-.DS_Store
-Thumbs.db
