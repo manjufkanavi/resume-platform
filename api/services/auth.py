@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
 KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "iacgenie")
 KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "resume-platform")
-KEYCLOAK_CLIENT_SECRET = os.getenv("KEYCLOAK_CLIENT_SECRET", "CHANGE_ME")
-AUTH_WRAPPER_URL = os.getenv("AUTH_WRAPPER_URL", "http://auth-wrapper:9096")
+KEYCLOAK_CLIENT_SECRET=os.getenv("KEYCLOAK_CLIENT_SECRET", "CHANGE_ME")
+AUTH_WRAPPER_URL=os.getenv("AUTH_WRAPPER_URL", "http://iacgenie_auth_wrapper:9090")
 
 # ── Token Validation ───────────────────────────────────────────────────
 
