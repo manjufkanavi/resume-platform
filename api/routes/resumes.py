@@ -7,7 +7,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Form
 from sqlalchemy import select, func
 
 from database import Resume, User, get_db
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/v1/resume", tags=["resumes"])
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
 
 
-async def require_auth(authorization: str = "Bearer ") -> dict:
+async def require_auth(authorization: str = Header(default="Bearer ")) -> dict:
     """Dependency: extract and validate Bearer token."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")

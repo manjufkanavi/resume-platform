@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from contextlib import asynccontextmanager
 import os
 
 # ── Database Engine ─────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ class Base(DeclarativeBase):
     pass
 
 
+@asynccontextmanager
 async def get_db():
     """Async context manager for database sessions."""
     async with async_session_factory() as session:

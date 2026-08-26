@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 API_SECRET = os.getenv("API_SECRET", "change-me-secret")
 
 
-async def require_auth(authorization: str = "Bearer ") -> dict:
+async def require_auth(authorization: str = Header(default="Bearer ")) -> dict:
     """Dependency: extract and validate Bearer token."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
@@ -68,10 +68,7 @@ async def n8n_callback(request: Request, x_api_key: str = Header(...)):
     if not resume_id or not action:
         raise HTTPException(status_code=400, detail="Missing resume_id or action")
 
-    # Update resume in database
-    from database import Resume
-    from main import get_db
-    from sqlalchemy import select
+    # Update resume in database (Resume, get_db, select already imported at top)
 
     async with get_db() as db:
         result = await db.execute(select(Resume).where(Resume.id == resume_id))

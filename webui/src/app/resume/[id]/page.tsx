@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, RefreshCw, Trash2, Download, FileText, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,15 +14,11 @@ import { StatusBadge } from "@/components/status-badge";
 
 type AnyObj = Record<string, any>;
 
-// Thin server wrapper: Next treats a component that `await params` as a server
-// component, so it cannot call client hooks. It just resolves `params` and
-// delegates to the client UI below (which holds all hooks/state).
-export default async function ResumePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+// Thin client wrapper: reads the [id] route param synchronously via useParams()
+// (client components can't `await params`) and delegates to the client UI below.
+export default function ResumePage() {
+  const rawId = useParams().id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId ?? "";
   return <ResumeDetailClient id={id} />;
 }
 
@@ -99,7 +95,7 @@ function ResumeDetailClient({ id }: { id: string }) {
           <Button variant="outline" size="sm" onClick={doDelete} disabled={data.status === "processing"} className="hover:bg-rose-500/10">
             <Trash2 className="h-4 w-4 text-rose-400" /> Delete
           </Button>
-          <Button size="sm" onClick={doRegenerate} disabled={data.status === "processing"} className="gap-2">
+          <Button size="sm" onClick={doRegenerate} disabled={data.status === "processing" && !!(data.ats_score || data.improvements)} className="gap-2">
             <RefreshCw className={`h-4 w-4 ${data.status === "processing" ? "animate-spin" : ""}`} /> Re-run
           </Button>
         </div>
