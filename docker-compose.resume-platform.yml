@@ -1,7 +1,13 @@
 # Resume Platform Docker Compose
+# Deploy: docker compose -f docker-compose.resume-platform.yml up -d
+# Location: ~/docker/iacgenie/docker-compose.resume-platform.yml
+
 version: "3.8"
 
 services:
+  # =====================
+  # Resume API (FastAPI)
+  # =====================
   resume-api:
     build:
       context: ./api
@@ -19,10 +25,11 @@ services:
       - KEYCLOAK_URL=http://iacgenie_keycloak:8080
       - KEYCLOAK_REALM=iacgenie
       - KEYCLOAK_CLIENT_ID=resume-platform
+      - KEYCLOAK_CLIENT_SECRET=${resume_platform_client_secret}
       - AUTH_WRAPPER_URL=http://iacgenie_auth_wrapper:9090
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=qwen2.5:0.5b
-      - API_SECRET=***
+      - API_SECRET=${resume_api_secret}
       - MAX_FILE_SIZE_MB=10
       - ALLOWED_ORIGINS=https://resume.iacgenie.com
     networks:
@@ -43,6 +50,9 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  # =====================
+  # n8n Workflow Engine
+  # =====================
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: iacgenie_n8n
@@ -60,7 +70,7 @@ services:
       - DB_POSTGRESDB_HOST=iacgenie_postgres
       - DB_POSTGRESDB_DATABASE=lightsrp
       - DB_POSTGRESDB_USER=lightsrp
-      - DB_POSTGRESDB_PASSWORD=***
+      - DB_POSTGRESDB_PASSWORD=${PG_ROOT_PASSWORD}
       - DB_POSTGRESDB_PORT=5432
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=iacgenie_redis
@@ -68,7 +78,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - MINIO_ENDPOINT=iacgenie_minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - N8N_API_KEY=***
+      - N8N_API_KEY=${resume_api_secret}
     volumes:
       - ./n8n/data:/home/node/.n8n
     networks:
