@@ -19,13 +19,12 @@ services:
       - KEYCLOAK_URL=http://iacgenie_keycloak:8080
       - KEYCLOAK_REALM=iacgenie
       - KEYCLOAK_CLIENT_ID=resume-platform
-      - AUTH_WRAPPER_URL=***      - OLLAMA_URL=http://127.0.0.1:11434
+      - AUTH_WRAPPER_URL=http://iacgenie_auth_wrapper:9090
+      - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=qwen2.5:0.5b
-      - API_SECRET=***      - MAX_FILE_SIZE_MB=10
+      - API_SECRET=***
+      - MAX_FILE_SIZE_MB=10
       - ALLOWED_ORIGINS=https://resume.iacgenie.com
-    depends_on:
-      n8n:
-        condition: service_healthy
     networks:
       - iacgenie-backend
     deploy:
@@ -61,18 +60,17 @@ services:
       - DB_POSTGRESDB_HOST=iacgenie_postgres
       - DB_POSTGRESDB_DATABASE=lightsrp
       - DB_POSTGRESDB_USER=lightsrp
-      - DB_POSTGRESDB_PASSWORD=***      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_PASSWORD=***
+      - DB_POSTGRESDB_PORT=5432
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=iacgenie_redis
       - QUEUE_BULL_REDIS_PORT=6379
-      - OLLAMA_URL=http://127.0.0.1:11434
+      - OLLAMA_URL=http://ollama:11434
       - MINIO_ENDPOINT=iacgenie_minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - N8N_API_KEY=***    volumes:
+      - N8N_API_KEY=***
+    volumes:
       - ./n8n/data:/home/node/.n8n
-    depends_on:
-      resume-api:
-        condition: service_healthy
     networks:
       - iacgenie-backend
     deploy:
