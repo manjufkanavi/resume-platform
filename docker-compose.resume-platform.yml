@@ -60,7 +60,7 @@ services:
     ports:
       - "127.0.0.1:3005:5678"
     env_file:
-      - ../.env
+      - ./.env
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -75,6 +75,7 @@ services:
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=iacgenie_redis
       - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
       - OLLAMA_URL=http://ollama:11434
       - MINIO_ENDPOINT=iacgenie_minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
