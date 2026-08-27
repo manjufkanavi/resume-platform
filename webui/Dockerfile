@@ -15,7 +15,7 @@ ENV NODE_ENV=production
 ENV PORT=3070
 
 # Copy standalone output
-ARG NEXT_PUBLIC_API_URL=http://lightserp-api:3071
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:3006
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 COPY --from=builder /app/.next/standalone ./
