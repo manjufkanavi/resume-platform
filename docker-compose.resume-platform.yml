@@ -89,7 +89,7 @@ services:
           memory: "1g"
           cpus: "1.0"
     healthcheck:
-      test: ["CMD-SHELL", "exec 6<>/dev/tcp/127.0.0.1:5678 && exec 6>&-"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
