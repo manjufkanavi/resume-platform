@@ -1,28 +1,31 @@
 # Build stage
-FROM node:22-slim AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
 COPY . .
+
+# Install dependencies for Next.js build (need typescript, etc.)
+RUN npm install --no-audit
+
+# Build the app - use standalone output for Docker deployment
+ENV NODE_ENV=production
 RUN npm run build
 
-# Production stage
-FROM node:22-slim AS runner
+# Production stage - use standalone output for minimal image size
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3070
 
-# Copy standalone output
-ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:3006
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
+# Copy standalone output from builder
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Update package.json for standalone
+# Update package.json for standalone mode
 RUN node -e "const pkg=require('./package.json'); delete pkg.devDependencies; pkg.scripts={}; require('fs').writeFileSync('package.json', JSON.stringify(pkg,null,2))"
 
 EXPOSE 3070
