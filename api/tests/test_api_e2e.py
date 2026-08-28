@@ -5,8 +5,10 @@ Covers: health, auth, resume upload/list/delete, internal endpoints.
 """
 
 import pytest
+from contextlib import asynccontextmanager
 from fastapi.testclient import TestClient
 
+import routes.resumes
 from main import app
 
 
@@ -176,3 +178,135 @@ class TestEdgeCases:
             headers={"Content-Type": "application/json"}
         )
         assert resp.status_code == 422
+
+
+# ── Duplicate application detection (BUG t_75f42a02) ──────────────────────
+
+
+def _fake_get_db_factory(existing_resume):
+    """Build an async context manager faking ``get_db()`` for upload tests.
+
+    Dispatches on the SQL text so a User lookup returns a user and the
+    duplicate-detection query returns ``existing_resume`` (a Resume-like object
+    or None). Mirrors the real get_db() being called as ``async with``.
+    """
+
+    @asynccontextmanager
+    async def _get_db():
+        class _FakeUser:
+            id = "uid-123"
+
+        async def _execute(statement):
+            sql = str(statement)
+            if "users" in sql:
+                return _FakeResult(_FakeUser())
+            # Duplicate-detection query on the resumes table.
+            return _FakeResult(existing_resume)
+
+        class _FakeDB:
+            async def execute(self, statement):  # noqa: D401 - trivial stub
+                return await _execute(statement)
+
+            async def commit(self):  # noqa: D401
+                pass
+
+            async def add(self, obj):  # noqa: D401
+                pass
+
+            async def refresh(self, obj):  # noqa: D401
+                return obj
+
+        yield _FakeDB()
+
+    return _get_db
+
+
+class _FakeResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _FakeResume:
+    """Placeholder Resume row used to simulate an existing (duplicate) record."""
+
+    id = "dup-resume-1"
+
+
+@pytest.fixture(autouse=True)
+def _clean_dependency_overrides():
+    """Isolate dependency_overrides between tests (TestClient state leaks)."""
+    original = dict(app.dependency_overrides)
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(original)
+
+
+class TestUploadDuplicateDetection:
+    """BUG t_75f42a02: duplicate application submission → 409, not 500."""
+
+    def test_duplicate_submission_returns_409(self, monkeypatch):
+        """Re-submitting the same application returns 409 Conflict."""
+        monkeypatch.setattr(
+            routes.resumes, "get_db", _fake_get_db_factory(existing_resume=_FakeResume())
+        )
+        app.dependency_overrides[routes.resumes.require_auth] = lambda: {
+            "keycloak_id": "kc-1",
+            "email": "alice@example.com",
+            "name": "Alice",
+        }
+
+        resp = client.post(
+            "/api/v1/resume/upload",
+            files={"file": ("alice_resume.pdf", b"%PDF-1.4 fake duplicate", "application/pdf")},
+            data={"job_title": "Developer"},
+        )
+
+        assert resp.status_code == 409
+        body = resp.json()
+        assert "already exists" in body["detail"].lower()
+
+    def test_unique_submission_returns_201(self, monkeypatch):
+        """A novel submission is created (201) and not blocked as a duplicate."""
+        monkeypatch.setattr(routes.resumes, "upload_file", lambda *a, **k: "minio/key")
+        monkeypatch.setattr(
+            routes.resumes, "get_db", _fake_get_db_factory(existing_resume=None)
+        )
+        app.dependency_overrides[routes.resumes.require_auth] = lambda: {
+            "keycloak_id": "kc-1",
+            "email": "alice@example.com",
+            "name": "Alice",
+        }
+
+        resp = client.post(
+            "/api/v1/resume/upload",
+            files={"file": ("alice_resume.pdf", b"%PDF-1.4 fake unique", "application/pdf")},
+            data={"job_title": "Developer"},
+        )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["status"] == "processing"
+        assert isinstance(body["resume_id"], str)
+
+    def test_create_application_duplicate(self, monkeypatch):
+        """Regression test (per task spec) for duplicate submission handling."""
+        monkeypatch.setattr(
+            routes.resumes, "get_db", _fake_get_db_factory(existing_resume=_FakeResume())
+        )
+        app.dependency_overrides[routes.resumes.require_auth] = lambda: {
+            "keycloak_id": "kc-1",
+            "email": "alice@example.com",
+            "name": "Alice",
+        }
+
+        resp = client.post(
+            "/api/v1/resume/upload",
+            files={"file": ("resume.pdf", b"%PDF-1.4 duplicate test", "application/pdf")},
+            data={"job_title": "Engineer"},
+        )
+
+        assert resp.status_code == 409

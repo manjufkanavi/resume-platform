@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Form
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 
 from database import Resume, User, get_db
 from models import (
@@ -47,14 +48,24 @@ async def require_auth(authorization: str = Header(default="Bearer ")) -> dict:
     return user
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post(
+    "/upload",
+    response_model=UploadResponse,
+    status_code=201,
+)
 async def upload_resume(
     file: UploadFile = File(...),
     job_title: str = Form(None),
     experience_years: int = Form(None),
     user: dict = Depends(require_auth),
 ):
-    """Upload a resume file for processing."""
+    """Upload a resume file for processing.
+
+    A submission is identified by the authenticated user's email plus the
+    submitted resume filename (the "application"). Re-submitting the same
+    application returns HTTP 409 Conflict instead of silently creating a
+    duplicate record or raising an unhandled DB error (500).
+    """
     # Validate file size
     file_content = await file.read()
     if len(file_content) > MAX_FILE_SIZE:
@@ -71,19 +82,8 @@ async def upload_resume(
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: PDF, DOCX, JPG, PNG")
 
-    # Generate unique filename
-    file_id = str(uuid.uuid4())
     original_filename = file.filename or "resume"
-    safe_filename = f"{file_id}_{original_filename}"
 
-    # Upload to MinIO
-    try:
-        minio_key = upload_file(file_content, safe_filename, file.content_type)
-    except Exception as e:
-        logger.error(f"MinIO upload failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to upload file")
-
-    # Create resume record
     async with get_db() as db:
         # Get or create user
         result = await db.execute(
@@ -102,19 +102,54 @@ async def upload_resume(
             await db.commit()
             await db.refresh(db_user)
 
-        resume = Resume(
-            user_id=db_user.id,
-            filename=original_filename,
-            file_type=file.content_type,
-            file_size=len(file_content),
-            minio_key=minio_key,
-            status=ResumeStatus.PROCESSING,
-            job_title=job_title,
-            experience_years=experience_years,
+        # Duplicate detection: same user + same resume filename. Checked before
+        # any MinIO write so a duplicate is rejected cheaply with 409 instead of
+        # creating another record or raising an unhandled DB error (500).
+        dup = await db.execute(
+            select(Resume).where(
+                Resume.user_id == db_user.id,
+                Resume.filename == original_filename,
+            )
         )
-        db.add(resume)
-        await db.commit()
-        await db.refresh(resume)
+        if dup.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Application already exists for this email and name",
+            )
+
+        # Generate unique filename + upload to MinIO
+        file_id = str(uuid.uuid4())
+        safe_filename = f"{file_id}_{original_filename}"
+
+        try:
+            minio_key = upload_file(file_content, safe_filename, file.content_type)
+        except Exception as e:
+            logger.error(f"MinIO upload failed: {e}")
+            raise HTTPException(status_code=500, detail="Failed to upload file")
+
+        # Create resume record
+        try:
+            resume = Resume(
+                user_id=db_user.id,
+                filename=original_filename,
+                file_type=file.content_type,
+                file_size=len(file_content),
+                minio_key=minio_key,
+                status=ResumeStatus.PROCESSING,
+                job_title=job_title,
+                experience_years=experience_years,
+            )
+            db.add(resume)
+            await db.commit()
+            await db.refresh(resume)
+        except IntegrityError as e:
+            # A concurrent insert slipped past the pre-check above. Treat a
+            # duplicate application as 409 Conflict, not an unhandled 500.
+            logger.warning(f"Duplicate application rejected: {e}")
+            raise HTTPException(
+                status_code=409,
+                detail="Application already exists for this email and name",
+            )
 
     return UploadResponse(
         resume_id=str(resume.id),
