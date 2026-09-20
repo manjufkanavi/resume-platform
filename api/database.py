@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Boolean,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -64,6 +65,9 @@ class User(Base):
     keycloak_id = Column(String(255), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     name = Column(String(255), nullable=True)
+    # Local credential store. Populated for accounts created via the platform's
+    # own signup flow; None for Keycloak-only users. Never store plaintext.
+    password_hash = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -72,6 +76,20 @@ class User(Base):
     )
 
     resumes = relationship("Resume", back_populates="user", cascade="all, delete-orphan")
+
+
+class OtpCode(Base):
+    """A single-use OTP code issued for signup verification or password reset."""
+
+    __tablename__ = "otp_codes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=func.gen_random_uuid())
+    email = Column(String(255), nullable=False, index=True)
+    action = Column(String(32), nullable=False)  # "signup_verify" | "password_reset"
+    code_hash = Column(String(255), nullable=False)  # bcrypt hash of the OTP
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Resume(Base):

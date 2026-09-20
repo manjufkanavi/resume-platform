@@ -68,7 +68,18 @@ async def _validate_via_keycloak(token: str) -> dict[str, Any] | None:
 
 
 async def get_user_from_token(token: str) -> dict[str, Any] | None:
-    """Extract user info from token and return user dict."""
+    """Extract user info from token and return user dict.
+
+    Tries the local login-JWT path first (used by the email/password signup and
+    forgot-password flows), then falls back to Keycloak introspection for OIDC
+    tokens. A token that matches neither returns ``None`` (unauthorized).
+    """
+
+    if _local_jwt_enabled():
+        local = decode_login_token(token)
+        if local:
+            return local
+
     info = await validate_token(token)
     if not info:
         return None
@@ -78,6 +89,26 @@ async def get_user_from_token(token: str) -> dict[str, Any] | None:
         "email": info.get("email"),
         "name": info.get("name"),
     }
+
+
+def _local_jwt_enabled() -> bool:
+    """Whether the local email/password credential store is active.
+
+    Enabled when a non-default AUTH_JWT_SECRET is configured, so the local JWT
+    path stays off by default and never touches Keycloak's secret store.
+    """
+
+    from services import otp as _otp  # local import avoids a circular load cost
+
+    return bool(_otp.JWT_SECRET and _otp.JWT_SECRET != "change-me-local-jwt-secret")
+
+
+def decode_login_token(token: str) -> dict[str, Any] | None:
+    """Decode a local login (access) token. Returns user claims or ``None``."""
+
+    from services import otp as _otp  # local import avoids a circular load cost
+
+    return _otp.decode_login_token(token)
 
 
 def get_auth_wrapper_url() -> str:

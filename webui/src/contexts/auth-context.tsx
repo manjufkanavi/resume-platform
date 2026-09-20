@@ -26,6 +26,10 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   loginWithKeycloak: () => void;
   loginDemo: () => void;
+  // Complete a Keycloak-hosted flow (login/signup/forgot-password) by redeeming
+  // the authorization code it redirected back with. Server-side exchange keeps
+  // the confidential client secret out of the browser.
+  completeAuthFlow: (code: string, redirectUri?: string) => Promise<void>;
   setCredentials: (token: string, user: AuthUser) => void;
   logout: () => void;
 }
@@ -96,6 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const redirectUri =
       process.env.NEXT_PUBLIC_REDIRECT_URI || `${window.location.origin}/auth/callback`;
     const state = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    // Remember the state so /auth/callback can verify it (CSRF protection).
+    (window as unknown as { __kcState?: string }).__kcState = state;
     const url = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     window.location.href = url;
   }, []);
@@ -104,6 +110,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist(null, null);
     window.location.href = "/login";
   }, [persist]);
+
+  const completeAuthFlow = useCallback(
+    async (code: string, redirectUri?: string) => {
+      try {
+        const resp = await fetch("/api/v1/auth/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, redirectUri }),
+        });
+        if (!resp.ok) throw new Error("Authentication failed");
+        const data = (await resp.json()) as {
+          token: string;
+          user: AuthUser;
+        };
+        persist(data.token, data.user);
+      } catch (e) {
+        // Redirect back to Keycloak login on failure.
+        window.location.href = "/login";
+      }
+    },
+    [persist],
+  );
 
   return (
     <AuthContext.Provider
@@ -114,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!token,
         loginWithKeycloak,
         loginDemo,
+        completeAuthFlow,
         setCredentials: persist,
         logout,
       }}

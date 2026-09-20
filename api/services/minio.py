@@ -79,6 +79,37 @@ def delete_file(object_key: str) -> bool:
         return False
 
 
+def scan_file(file_bytes: bytes, content_type: str) -> bool:
+    """Optional pre-upload virus scan (ClamAV per ARCHITECTURE.md).
+
+    PLACEHOLDER: returns True ("clean") by default so the upload path is
+    unaffected until a real scanner backend is wired in. Enable by setting
+    VIRUS_SCAN_ENABLED=1 and implementing the branch below; when enabled, a
+    positive result raises ``VirusDetected`` so callers reject the upload.
+
+    Kept intentionally dependency-free — no ClamAV client import yet, so this
+    must stay a stub until the backend is chosen.
+    """
+
+    if os.getenv("VIRUS_SCAN_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return True
+
+    # TODO(P1.3): wire a real scanner here (e.g. pycav/ClamAV socket) and raise
+    # VirusDetected(file_key, reason) on a positive hit. Until then this is a
+    # no-op that passes every file through as clean.
+    return True
+
+
+def scan_file_key(minio_key: str) -> bool:
+    """Scan an already-stored object in MinIO. Placeholder (see scan_file)."""
+
+    if os.getenv("VIRUS_SCAN_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return True
+
+    # TODO(P1.3): pull the object, scan it, and clean up on a positive hit.
+    return True
+
+
 def file_exists(object_key: str) -> bool:
     """Check if file exists in MinIO."""
     client = get_minio_client()
