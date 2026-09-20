@@ -14,6 +14,11 @@ EXPECTED_STATIC_ROUTES = [
     "/health",
     "/api/v1/auth/verify",
     "/api/v1/auth/n8n/callback",
+    # Local email/password signup + forgot-password flows (Phase 0.4/0.5).
+    "/api/v1/auth/signup",
+    "/api/v1/auth/verify-otp",
+    "/api/v1/auth/forgot-password",
+    "/api/v1/auth/reset-password",
     "/api/v1/resume/upload",
     "/api/v1/resume/",
     "/api/v1/resume/{resume_id}",
