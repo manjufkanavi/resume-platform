@@ -95,6 +95,22 @@ export const authApi = {
     return (await res.json()) as { token: string; user: Record<string, unknown> };
   },
 
+  // Local email/password login (Phase 0.x). Posts credentials to the backend's
+  // /api/v1/auth/login route and returns an access token + user, mirroring the
+  // verify-otp path used by signup.
+  loginLocal: async (email: string, password: string) => {
+    const res = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Login failed" }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    return (await res.json()) as { token: string; user: Record<string, unknown> };
+  },
+
   // Request a password-reset OTP for the given email.
   forgotPasswordLocal: async (email: string) => {
     const res = await fetch("/api/v1/auth/forgot-password", {

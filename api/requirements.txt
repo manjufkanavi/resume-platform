@@ -24,6 +24,10 @@ minio==7.2.13
 python-jose[cryptography]==3.3.0
 httpx==0.28.1
 
+# Password hashing + HTML email templates (local login / signup / forgot-password)
+bcrypt==5.0.0  # Password hashing for local auth (matches iacgenie-platform)
+jinja2==3.1.6  # HTML email template rendering (matches iacgenie-platform)
+
 # HTTP client for Ollama
 requests==2.32.3
 

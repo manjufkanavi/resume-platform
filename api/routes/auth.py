@@ -28,6 +28,7 @@ from services.keycloak import auth_url, exchange_code_for_token, kc_config
 from services.local_auth import AuthError as LocalAuthError
 from services.local_auth import (
     forgot_password,
+    login as local_login,
     reset_password,
     signup as local_signup,
     verify_otp,
@@ -179,6 +180,31 @@ async def forgot_password_route(request: ForgotPasswordRequest):
         ) from e
 
     return {"status": "otp_sent", "email": result["email"], "token": result.get("token")}
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/login")
+async def login_route(request: LoginRequest):
+    """Authenticate a local email/password user.
+
+    Verifies the credentials against the stored bcrypt hash and returns
+    ``{"token": ..., "user": {...}}`` on success, or a 401 with
+    ``{"error": "..."}`` if they are invalid. The message never reveals whether
+    the email exists, so it stays safe against account enumeration.
+    """
+
+    try:
+        result = await local_login(request.email, request.password)
+    except LocalAuthError as e:
+        raise HTTPException(
+            status_code=e.status_code, detail=e.message
+        ) from e
+
+    return result
 
 
 @router.post("/reset-password")

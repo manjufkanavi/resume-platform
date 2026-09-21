@@ -45,16 +45,26 @@ export function SignupInner() {
   const otp = otpDigits.join("");
   const isOtpReady = otp.length === 6;
 
+  // Live validation (mirrors iacgenie SignUpPage): validate email + confirm
+  // password as the user types, show inline errors / helper text under each
+  // field, and keep the submit button disabled until both fields are valid.
+  const isValidEmail = (val: string) => /^[^@\s]+@[^\s@]+\.[^\s@]+$/.test(val);
+  const emailInvalid = !!email && !isValidEmail(email);
+  const passwordsMatch = password === confirmPassword;
+
   // Step 1: submit email + password.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
       return;
     }
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
       return;
     }
     setIsLoading(true);
@@ -125,7 +135,11 @@ export function SignupInner() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
+                  className={emailInvalid ? "border-red-300 focus:border-red-500" : ""}
                 />
+                {emailInvalid && (
+                  <p className="mt-1.5 text-xs font-semibold text-destructive">Please enter a valid email address</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="password">Password</Label>
@@ -149,7 +163,13 @@ export function SignupInner() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter your password"
                   required
+                  className={confirmPassword && !passwordsMatch ? "border-red-300 focus:border-red-500" : ""}
                 />
+                {confirmPassword && !passwordsMatch ? (
+                  <p className="mt-1.5 text-xs font-semibold text-destructive">Passwords do not match</p>
+                ) : passwordsMatch && confirmPassword ? (
+                  <p className="mt-1.5 text-xs font-semibold text-green-600">Passwords match</p>
+                ) : null}
               </div>
 
               {error && (
@@ -158,7 +178,7 @@ export function SignupInner() {
                 </p>
               )}
 
-              <Button className="w-full" disabled={isLoading}>
+              <Button className="w-full" disabled={isLoading || emailInvalid || !passwordsMatch}>
                 {isLoading ? "Creating account…" : "Create an account"}
               </Button>
             </form>
