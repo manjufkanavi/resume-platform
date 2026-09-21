@@ -17,6 +17,14 @@ export function LoginInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Live validation (mirrors iacgenie SignInPage): validate email + password as
+  // the user types, show inline errors under each field, and keep the submit
+  // button disabled until both fields are valid. This matches iacgenie's UX so
+  // the login behaviour is identical across platforms.
+  const isValidEmail = (val: string) => /^[^@\s]+@[^\s@]+\.[^\s@]+$/.test(val);
+  const emailInvalid = !!email && !isValidEmail(email);
+  const passwordTooShort = password.length > 0 && password.length < 8;
+
   // Local email/password login (Phase 0.x), mirroring the iacgenie SignInPage:
   //   - email + password form with client-side validation,
   //   - delegates to the auth-context login() hook (POST /api/v1/auth/login),
@@ -24,7 +32,7 @@ export function LoginInner() {
   //     otherwise login() populates the shared `loginError` for display.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !/^[^@\s]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!isValidEmail(email)) {
       setError("Please enter a valid email address.");
       return;
     }
@@ -60,7 +68,11 @@ export function LoginInner() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
+              className={emailInvalid ? "border-red-300 focus:border-red-500" : ""}
             />
+            {emailInvalid && (
+              <p className="mt-1.5 text-xs font-semibold text-destructive">Please enter a valid email address</p>
+            )}
           </div>
 
           <div>
@@ -73,7 +85,11 @@ export function LoginInner() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
               required
+              className={passwordTooShort ? "border-red-300 focus:border-red-500" : ""}
             />
+            {passwordTooShort && (
+              <p className="mt-1.5 text-xs font-semibold text-destructive">Password must be at least 8 characters</p>
+            )}
           </div>
 
           {error && (
@@ -82,7 +98,7 @@ export function LoginInner() {
             </p>
           )}
 
-          <Button className="w-full" type="submit">
+          <Button className="w-full" type="submit" disabled={emailInvalid || passwordTooShort}>
             Sign in
           </Button>
         </form>
