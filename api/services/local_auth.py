@@ -37,7 +37,31 @@ from services.otp import (
 
 logger = logging.getLogger(__name__)
 
-EMAIL_RE = os.getenv("OTP_EMAIL_PATTERN", r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = os.getenv("OTP_EMAIL_PATTERN", r"^[^@\s]+@[^\s@]+\.[^\s@]+$")
+
+
+def _render_otp_email(user_name: Optional[str], otp_code: str, reset: bool = False) -> str:
+    """Render the OTP email template with Jinja2.
+
+    Loads ``api/templates/otp_reset.html`` (password reset) or
+    ``api/templates/otp_verification.html`` (signup), relative to this file, and
+    renders it with the recipient name + OTP code. This mirrors the branded HTML
+    email style iacgenie uses for its verification/reset emails. Returns an empty
+    string on any failure so callers can degrade to the plaintext body instead of
+    crashing signup/forgot-password.
+    """
+
+    template_name = "otp_reset.html" if reset else "otp_verification.html"
+    try:
+        from jinja2 import Environment, FileSystemLoader
+
+        template_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+        env = Environment(loader=FileSystemLoader(template_dir))
+        template = env.get_template(template_name)
+        return template.render(user_name=user_name, otp=otp_code)
+    except Exception:  # pragma: no cover - template missing / jinja2 absent
+        logger.debug("OTP email template unavailable; falling back to plaintext.", exc_info=True)
+        return ""
 
 
 class AuthError(Exception):
@@ -152,10 +176,12 @@ async def signup(email: str, password: str, name: Optional[str] = None) -> dict:
 
     # Deliver the OTP (SMTP or log fallback). Never fail signup on email errors.
     try:
+        html = _render_otp_email(user.name, code)
         await email_sender.send_email(
             to=user.email,
             subject="Verify your Resume Platform account",
             body=f"Your verification code is: {code}",
+            html=html or None,
         )
     except Exception as e:  # noqa: BLE001 - email failure is non-fatal
         logger.error("Failed to send signup OTP: %s", e)
@@ -195,6 +221,7 @@ async def forgot_password(email: str) -> dict:
         await _store_otp(db, user_record.email, "password_reset", code)
 
     try:
+        reset_html = _render_otp_email(user_record.name, code, reset=True)
         await email_sender.send_email(
             to=user_record.email,
             subject="Reset your Resume Platform password",
@@ -202,6 +229,7 @@ async def forgot_password(email: str) -> dict:
                 "Use this code to reset your Resume Platform password: {code}\n"
                 "If you did not request this, ignore this email."
             ).format(code=code),
+            html=reset_html or None,
         )
     except Exception as e:  # noqa: BLE001 - email failure is non-fatal
         logger.error("Failed to send reset OTP: %s", e)
@@ -348,6 +376,39 @@ def _login_response(user_record: User) -> dict:
             "name": user_record.name or "",
         },
     }
+
+
+async def login(email: str, password: str) -> dict:
+    """Authenticate a local user with email + password.
+
+    Verifies the supplied credentials against the stored bcrypt hash and, on
+    success, returns a login response (matching verify_otp / reset_password).
+
+    Raises AuthError on unknown email, wrong password, missing credential
+    (Keycloak-only account), or unavailable bcrypt. The message never reveals
+    whether the email exists, so it stays safe against account enumeration.
+    """
+
+    if not isinstance(email, str) or len(email.strip()) < 3:
+        raise AuthError("A valid email is required.", 400)
+
+    if not isinstance(password, str):
+        raise AuthError("A password is required.", 400)
+
+    email = email.lower().strip()
+    bcrypt = _bcrypt()
+    if not bcrypt:
+        raise AuthError("Authentication service unavailable. Please try again later.", 503)
+
+    user_record = await find_user_by_email(email)
+    if not user_record or not user_record.password_hash:
+        # Never reveal whether the account exists.
+        raise AuthError("Invalid email or password.", 401)
+
+    if not _verify_password(password, user_record.password_hash):
+        raise AuthError("Invalid email or password.", 401)
+
+    return _login_response(user_record)
 
 
 async def _store_otp(

@@ -9,6 +9,8 @@ import {
   useCallback,
 } from "react";
 
+import { authApi } from "@/lib/auth-api";
+
 const TOKEN_KEY = "resume_token";
 const USER_KEY = "resume_user";
 
@@ -24,6 +26,11 @@ interface AuthContextValue {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  loginError: string | null;
+  // Local email/password login. Manages the global loading spinner and persists
+  // tokens on success; throws with a user-facing message on failure so the page
+  // can surface it (matching signup/forgot-password which manage their own error).
+  login: (email: string, password: string) => Promise<void>;
   loginWithKeycloak: () => void;
   loginDemo: () => void;
   // Complete a Keycloak-hosted flow (login/signup/forgot-password) by redeeming
@@ -57,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loginError, setLoginErrorState] = useState<string | null>(null);
 
   useEffect(() => {
     const savedToken = getStorage(TOKEN_KEY);
@@ -133,6 +141,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persist],
   );
 
+  // Local email/password login (Phase 0.x). Mirrors the signup verify-otp path:
+  // POST credentials, then persist whatever token + user the backend returns.
+  // Throws on failure so the login page can surface its own error message and
+  // manage loading state (matching signup/forgot-password).
+  const login = useCallback(
+    async (email: string, password: string) => {
+      setIsLoading(true);
+      try {
+        const data = await authApi.loginLocal(email.trim().toLowerCase(), password);
+        persist(data.token, {
+          keycloak_id: String((data.user as Record<string, unknown>)?.keycloak_id ?? ""),
+          username: "",
+          email: String((data.user as Record<string, unknown>)?.email ?? ""),
+          name: String((data.user as Record<string, unknown>)?.name ?? ""),
+        });
+      } catch (e) {
+        throw e as Error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [persist, setIsLoading],
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -140,6 +172,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         isLoading,
         isAuthenticated: !!token,
+        loginError,
+        login,
         loginWithKeycloak,
         loginDemo,
         completeAuthFlow,
